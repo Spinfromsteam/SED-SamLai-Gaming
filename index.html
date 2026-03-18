@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Hand Gesture 3D Cube</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #111;
+      }
+      #video-container {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        width: 200px;
+        border: 2px solid white;
+        border-radius: 10px;
+        transform: scaleX(-1);
+      }
+      canvas.output_canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <video id="input_video" style="display: none"></video>
+    <div id="video-container">
+      <canvas id="debug_canvas" style="width: 100%; height: auto"></canvas>
+    </div>
+
+    <div id="three-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+      // --- 1. Setup Three.js Scene ---
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document
+        .getElementById('three-container')
+        .appendChild(renderer.domElement);
+
+      const geometry = new THREE.BoxGeometry(2, 2, 2);
+      const material = new THREE.MeshNormalMaterial();
+      const cube = new THREE.Mesh(geometry, material);
+      scene.add(cube);
+      camera.position.z = 5;
+
+      function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      // --- 2. Setup MediaPipe Hands ---
+      const videoElement = document.getElementById('input_video');
+      const debugCanvas = document.getElementById('debug_canvas');
+      const canvasCtx = debugCanvas.getContext('2d');
+
+      function onResults(results) {
+        // Clear debug canvas
+        canvasCtx.save();
+        canvasCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
+        canvasCtx.drawImage(
+          results.image,
+          0,
+          0,
+          debugCanvas.width,
+          debugCanvas.height
+        );
+
+        if (
+          results.multiHandLandmarks &&
+          results.multiHandLandmarks.length > 0
+        ) {
+          const landmarks = results.multiHandLandmarks[0];
+
+          // Landmark 8 is the Index Finger Tip
+          const indexTip = landmarks[8];
+
+          // Map landmark coordinates (0 to 1) to Three.js rotation
+          // We use subtraction to invert the "mirror" effect
+          cube.rotation.y = (indexTip.x - 0.5) * 10;
+          cube.rotation.x = (indexTip.y - 0.5) * 10;
+
+          // Optional: Scale cube based on hand distance (z)
+          const scale = 1 + (1 - indexTip.z) * 2;
+          cube.scale.set(scale, scale, scale);
+        }
+        canvasCtx.restore();
+      }
+
+      const hands = new Hands({
+        locateFile: (file) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+      });
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+
+      hands.onResults(onResults);
+
+      // --- 3. Start Camera ---
+      const cameraFeed = new Camera(videoElement, {
+        onFrame: async () => {
+          await hands.send({ image: videoElement });
+        },
+        width: 640,
+        height: 480,
+      });
+      cameraFeed.start();
+
+      // Handle Resize
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+  </body>
+</html>
